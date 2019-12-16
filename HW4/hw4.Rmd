@@ -1,0 +1,362 @@
+---
+title: "Homework 4"
+author: "Hyungkyu Lim"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE ,tidy.opts=list(width.cutoff = 60), tidy = TRUE)
+library(bootstrap)
+library(ISLR)
+library(MASS)
+library(class)
+library(ElemStatLearn)
+library(leaps)
+library(boot)
+library(tree)
+library(rpart)
+library(randomForest)
+library(gbm)
+
+```
+
+1. For the prostate data of Chapter 3, carry out a bestsubset
+linear regression analysis, as in Table 3.3 (third column from the left).
+Compute the AIC, BIC, five- and tenfold cross-validation, and bootstrap .632
+estimates of prediction error. 
+```{r}
+data("prostate")
+prostate <- prostate
+set.seed(1)
+
+train = sample(1:nrow(prostate), nrow(prostate)*0.80)
+
+Y.train = prostate$lpsa[train]
+Y.test = prostate$lpsa[-train]
+X.train = prostate[train,]
+X.test = prostate[-train,]
+```
+
+```{r}
+#hold-out method
+
+fit <- lm(lpsa~., data = prostate[train,])
+pred.test <- predict(fit, newdata = X.test)
+pred.train <- predict(fit, newdata = X.train)
+
+summary_fit <- summary(fit)
+
+test.error <- (1/length(Y.test))*sum((pred.test - Y.test)^2)
+train.error <- (1/length(Y.train))*sum((pred.train - Y.train)^2)
+
+test.error
+train.error
+
+AIC(fit)
+BIC(fit)
+```
+
+```{r}
+#Cp and BIC
+
+best_fit <- regsubsets(lpsa~., data = X.train, nvmax = 8, method = "exhaustive")
+
+bestfit_summary <- summary(best_fit)
+
+par(mfrow = c(2,2))
+plot(bestfit_summary$cp, xlab = "Number of Variables", ylab = "Cp", type = "l")
+plot(bestfit_summary$bic, xlab = "Number of Variables", ylab = "BIC", type = "l")
+
+which.min(bestfit_summary$cp)  # 6 is best
+
+which.min(bestfit_summary$bic)# 3 is best
+
+bestfit_summary$cp
+
+bestfit_summary$bic
+
+select = summary(best_fit)$outmat
+train.error.store <- c()
+test.error.store <- c()
+for (i in 1:8){
+	temp <- which(select[i,] == "*")
+	temp <- temp + 1
+	
+	red.training <- X.train[, c(9,temp)]
+	red.testing <- X.test[,c(9,temp)]
+	
+	red.fit <- lm(lpsa~., data = red.training)
+	
+	pred.train = predict(red.fit, newdata = red.training)
+	pred.test = predict(red.fit, newdata = red.testing)
+	
+	test.error <- (1/length(Y.test))*sum((pred.test - Y.test)^2)
+	train.error <- (1/length(Y.train))*sum((pred.train - Y.train)^2)
+	
+	train.error.store <- c(train.error.store, train.error)
+	test.error.store <- c(test.error.store, test.error)
+
+}
+
+upper = max(train.error.store, test.error.store)
+lower = min(train.error.store, test.error.store)
+
+
+plot(train.error.store, type = "o", lty = 2, col = "blue", ylim = c(lower -1, upper +1) , xlab = "k", ylab = "error", main = "Model Selection")
+lines(test.error.store, type = "o", lty = 1, col = "red")
+legend("topright", c("training", "test"), lty = c(2,1), col = c("blue", "red"))
+```
+
+```{r}
+#cv for k=5
+#from ISLR lab 6.5.3
+predict.regsubsets = function(object, newdata, id, ...) {
+  form = as.formula(object$call[[2]])
+  mat = model.matrix(form, newdata)
+  coefi = coef(object, id = id)
+  mat[, names(coefi)] %*% coefi
+}
+
+k=5
+set.seed (1)
+folds=sample (1:k,nrow(prostate),replace =TRUE)
+
+cv.errors = matrix(NA,5,8)
+for (j in 1:k) {
+  best.fit = regsubsets(lpsa~., data = prostate[folds != j,], nvmax = 8)
+  for (i in 1:8) {
+    pred = predict(best.fit, prostate[folds == j, ], id = i)
+    cv.errors[j, i] = mean((prostate$lpsa[folds == j] - pred)^2)
+  }
+}
+mean.cv = apply(cv.errors, 2, mean)
+mean.cv
+
+squared_error = sqrt(mean.cv)
+squared_error
+
+which.min(squared_error)
+```
+
+```{r}
+
+
+#cv for k=10
+#from ISLR lab 6.5.3
+predict.regsubsets = function(object, newdata, id, ...) {
+  form = as.formula(object$call[[2]])
+  mat = model.matrix(form, newdata)
+  coefi = coef(object, id = id)
+  mat[, names(coefi)] %*% coefi
+}
+
+k=10
+set.seed (1)
+folds=sample (1:k,nrow(prostate),replace =TRUE)
+
+cv.errors = matrix(NA,10,8)
+for (j in 1:k) {
+  best.fit = regsubsets(lpsa~ ., data = prostate[folds != j,], nvmax = 8)
+  for (i in 1:8) {
+    pred = predict(best.fit, prostate[folds == j, ], id = i)
+    cv.errors[j, i] = mean((prostate$lpsa[folds == j] - pred)^2)
+  }
+}
+mean.cv = apply(cv.errors, 2, mean)
+mean.cv
+
+squared_error = sqrt(mean.cv)
+squared_error
+
+which.min(squared_error)
+
+```
+
+```{r}
+#bootstrap
+
+X <- prostate[,]
+Y <- prostate[,9]
+
+beta.fit <- function(X,Y){
+  lsfit(X,Y)	
+}
+
+beta.predict <- function(fit, X){
+	cbind(1,X)%*%fit$coef
+}
+
+sq.error <- function(Y,Yhat){
+	(Y-Yhat)^2
+}
+
+
+error_store <- c()
+for (i in 1:8){
+	
+	temp <- which(select[i,] == "*")
+  res <- bootpred(X[,temp], Y, nboot = 50, theta.fit = beta.fit, theta.predict =      beta.predict, err.meas = sq.error) 
+	error_store <- c(error_store, res[[3]])
+	
+}
+
+
+plot(train.error.store, type = "o", lty = 2, col = "blue", ylim = c(lower -1, upper +1) , xlab = "k", ylab = "error", main = "Model Selection")
+lines(test.error.store, type = "o", lty = 1, col = "red")
+lines(error_store, type = "o", lty = 3, col = "green")
+legend("topright", c("training", "test", "bootstrap .632"), lty = c(2,1), col = c("blue", "red", "green"))
+
+```
+
+2) (10 points) A access the wine data from the UCI machine learning repository
+(https://archive.ics.uci.edu/ml/datasets/wine). These data are the results of a
+chemical analysis of 178 wines grown over the decade 1970-1979 in the same
+region of Italy, but derived from three different cultivars (Barolo, Grignolino,
+Barbera). The Babera wines were predominately from a period that was much
+later than that of the Barolo and Grignolino wines. The analysis determined the
+quantities MalicAcid, Ash, AlcAsh, Mg, Phenols, Proa, Color, Hue, OD, and
+Proline. There are 50 Barolo wines, 71 Grignolino wines, and 48 Barbera wines.
+Construct the appropriate-size classification tree for this dataset. How many
+training and testing samples fall into each node? Describe the resulting tree and
+your approach. 
+
+```{r}
+
+set.seed(1)
+
+wine <- read.csv("wine_data.txt", header=FALSE)
+
+train <- sample(1:nrow(wine), nrow(wine)*0.80)
+
+train_wine <- wine[train,]
+
+test_wine <- wine[-train,]
+
+model.control <- rpart.control(minsplit = 5, xval = 10, cp = 0)
+
+fit.dig <- rpart(V1~., data = train_wine, method = "class", control = model.control)
+
+plot(fit.dig,branch = .3,compress=T)
+text(fit.dig,cex = .8)
+
+pred_train_wine <- predict(fit.dig,train_wine,type="class")
+
+table(pred_train_wine,train_wine$V1)
+
+wine_error_train <- mean(pred_train_wine != test_wine$V1)
+
+wine_error_train
+
+pred_test_wine <- predict(fit.dig,test_wine,type="class")
+
+table(pred_test_wine,test_wine$V1)
+
+wine_error_test <- mean(pred_test_wine != test_wine$V1)
+
+wine_error_test
+
+fit.dig$cptable
+
+min_cp = which.min(fit.dig$cptable[,4])
+pruned_fit_dig <- prune(fit.dig, cp = fit.dig$cptable[min_cp,1])
+
+pred_train_wine_pruned <- predict(pruned_fit_dig,test_wine,type="class")
+
+table(pred_train_wine_pruned,test_wine$V1)
+
+wine_error_pruned <- mean(pred_train_wine_pruned != test_wine$V1)
+
+wine_error_pruned
+
+nodes_wine <- fit.dig
+
+nodes_wine$frame$yval = as.numeric(rownames(nodes_wine$frame))
+trainnodes <- predict(nodes_wine, train_wine, type="vector")
+
+
+nodes_wine$frame$yval = as.numeric(rownames(nodes_wine$frame))
+testnodes <- predict(nodes_wine, test_wine, type="vector")
+
+length(trainnodes)
+
+length(testnodes)
+
+```
+
+```{r}
+set.seed(123)
+
+data("Smarket")
+smarket <- Smarket
+
+smarket <- subset(smarket, select = -c(Today,Year))
+
+train <- sample(1:nrow(smarket), nrow(smarket)*0.80)
+
+
+
+smarket$Direction = ifelse(smarket$Direction == "Up", 1, 0) #down :0, up :1
+
+train_smarket <- smarket[train,]
+test_smarket <- smarket[-train,]
+
+logit.fit <- glm(Direction~. , data=train_smarket, family= "binomial")
+
+logit.probs <- predict(logit.fit, newdata = test_smarket, type ="response")
+
+logit.pred <- ifelse(logit.probs > 0.5, 1, 0) # 0 :down, 1: up
+
+
+table(test_smarket$Direction, logit.pred)
+
+mean(test_smarket$Direction != logit.pred)
+```
+```{r}
+#Bagging
+bagging.fit = randomForest(Direction ~ ., data = train_smarket, mtry = 6)
+
+bagging.probs = predict(bagging.fit, newdata = test_smarket)
+
+bagging.pred = ifelse(bagging.probs > 0.5, 1, 0)
+
+table(test_smarket$Direction, bagging.pred)
+
+mean(test_smarket$Direction != bagging.pred)
+
+
+```
+
+```{r}
+#boosting 
+
+boosting.fit = gbm(Direction ~ ., data = train_smarket, distribution = "bernoulli", n.trees = 5000)
+
+boosting.probs= predict(boosting.fit, newdata = test_smarket, n.trees = 5000)
+
+boosting.pred = ifelse(boosting.probs > 0.5, 1, 0)
+
+table(test_smarket$Direction, boosting.pred)
+
+mean(test_smarket$Direction != boosting.pred)
+
+```
+
+```{r}
+#random forest
+rforest.fit = randomForest(Direction ~ ., data = train_smarket, mtry = 2)
+
+rforest.probs = predict(rforest.fit, newdata = test_smarket)
+
+rforest.pred = ifelse(rforest.probs > 0.5, 1, 0)
+
+table(test_smarket$Direction, rforest.pred)
+
+mean(test_smarket$Direction != rforest.pred)
+```
+
+
+
+
+
+
+

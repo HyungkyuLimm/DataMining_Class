@@ -1,0 +1,227 @@
+---
+title: "Write up for homework 3"
+author: "Hyungkyu Lim"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE ,tidy.opts=list(width.cutoff = 60), tidy = TRUE)
+library(MASS)
+library(class)
+library(caret)
+```
+
+
+
+
+```{r,include=FALSE}
+
+DataBoston <- Boston
+
+med_crime <- median(DataBoston$crim)
+
+DataBoston$crim[DataBoston$crim < med_crime] <- 0
+
+DataBoston$crim[DataBoston$crim > med_crime] <- 1
+
+Boston.cor = cor(DataBoston)
+
+set.seed(123)
+
+train <- sample(1:nrow(DataBoston), .65*nrow(DataBoston))
+crime_train <- DataBoston[train,]
+crime_test <- DataBoston[-train,]
+
+y_true_train <- as.numeric(crime_train$crim)
+y_true_test <- as.numeric(crime_test$crim)
+
+#Rogistic Regression 
+glm.fit<- glm(crim ~ indus+nox+rad+tax+dis+age, data = crime_train, family = "binomial")
+
+
+# Predict
+glm.probs.train <- predict(glm.fit, newdata = crime_train[,-1], type = "response")
+glm.y_hat_train <- round(glm.probs.train)
+glm.probs.test <- predict(glm.fit, newdata = crime_test[,-1], type = "response")
+glm.y_hat_test <- round(glm.probs.test)
+```
+
+1) When I generate correlation of each variable easepcialy for crim, there are several variables that have strong relationship with crim. Among them, I chose Indus, nox, rad,tax, dis and age variables to do logistic regression, LDA and Knn. For logistic regression, the train error is about 0.122 and test error is about 0.157 based on the confusion matrix(Confusion matrix function doesn't work in my R environment so, I used table function insted of confusion matrix. And table function works exactly same with the confusion matrix function). In table matrix, I calulated the test error for logistic regression using False Positive and False Negative.
+
+```{r,echo=FALSE}
+# Calculate the error rates
+train_err <- sum(abs(glm.y_hat_train- y_true_train))/length(y_true_train)
+
+train_err
+
+
+table(crime_test$crim,glm.y_hat_test)
+
+round(mean(glm.y_hat_test!=crime_test$crim),3)
+
+```
+
+```{r,include=FALSE}
+#LDA
+Boston.lda.fit <- lda(crim~indus+nox+dis+rad+tax+age, data = crime_train)
+Boston.pred.train <- predict(Boston.lda.fit, newdata = crime_train)
+lda.y_hat_train <- as.numeric(Boston.pred.train$class)-1
+Boston.pred.test <- predict(Boston.lda.fit, newdata = crime_test)
+lda.y_hat_test <- as.numeric(Boston.pred.test$class)-1
+
+```
+
+
+For LDA, train error is about 0.14 and test error is about 0.174. I also used the table matrix to get the test error of LDA.
+```{r,echo=FALSE}
+# Compute the error
+lda_train_error <- sum(abs(y_true_train - lda.y_hat_train))/length(y_true_train) 
+
+lda_train_error
+
+
+table(crime_test$crim,lda.y_hat_test)
+
+round(mean(lda.y_hat_test!=crime_test$crim),3)
+
+```
+
+```{r,include=FALSE}
+#Knn
+
+subset.variable<-DataBoston[,c(1,3,5,7,8,9,10)]
+
+scaled.variable<-scale(subset.variable[,-1])
+
+set.seed(123)
+
+subset_knn <- sample(nrow(subset.variable), nrow(subset.variable) * 0.65)
+knn_train = subset.variable[subset_knn, ]
+knn_test = subset.variable[-subset_knn, ]
+
+set.seed(123)
+```
+
+For Knn, the test error of K=1 is about 0.457. K=5 is 0.464 K=10 is 0.462. For K=20, the test error is 0.472. Based on the test error of Knn, I found when K increases, the test error is also incrases (except for K=5). As a result, the minimum test error among three models is logistic regression model. and the maximum test error among threee models is Knn model with K=20.
+```{r,echo=FALSE}
+
+knn_1<-knn(knn_train[,-1],knn_test[,-1],knn_train[,1],k=1)
+table(knn_test[,1],knn_1)
+round(mean(knn_1 != subset.variable[,1]),3)
+
+
+knn_5<-knn(knn_train[,-1],knn_test[,-1],knn_train[,1],k=5)
+table(knn_test[,1],knn_5)
+
+round(mean(knn_5 != subset.variable[,1]),3)
+
+
+
+knn_10<-knn(knn_train[,-1],knn_test[,-1],knn_train[,1],k=10)
+table(knn_test[,1],knn_10)
+
+round(mean(knn_10 != subset.variable[,1]),3)
+
+
+knn_20<-knn(knn_train[,-1],knn_test[,-1],knn_train[,1],k=20)
+table(knn_test[,1],knn_20)
+
+round(mean(knn_20 != subset.variable[,1]),3)
+
+```
+
+&nbsp;
+
+
+&nbsp;
+
+
+&nbsp;
+
+
+
+
+```{r,include=FALSE}
+DataDiabetes <- read.table("diabetes.txt")
+Diabetes <- as.data.frame(DataDiabetes[,5:10])
+```
+
+2) Based on scatter plot, I can see that 3 classes have different covariance matrices for some variables. However it looks that 3 classes have almost same covariance matrix for glucose.area variable.
+```{r, echo=FALSE}
+#a
+pairs(Diabetes, col=Diabetes$V10)
+
+
+set.seed(123)
+diabetes.train <- sample(1:nrow(Diabetes), .65*nrow(Diabetes))
+
+diabetes_train <- Diabetes[diabetes.train,]
+diabetes_test <- Diabetes[-diabetes.train,]
+
+diabetes_true_train <- diabetes_train$V10
+diabetes_true_test <-  diabetes_test$V10
+```
+
+ To compare performance of LDA and QDA, I got the train and test error for those of two. Train error of LDA is about 0.096 and train error of QDA is about 0.032. Test error of LDA is about 0.12 and test error of QDA is about 0.14. So I guess performance of LDA is better than the performance of QDA. 
+ 
+```{r,echo=FALSE}
+#b
+#LDA
+
+diabetes.lda.fit <- lda(V10~., data = diabetes_train)
+diabetes.pred.train <- predict(diabetes.lda.fit, newdata = diabetes_train)
+diabetes_y_hat_train <- as.numeric(diabetes.pred.train$class)
+diabetes.pred.test <- predict(diabetes.lda.fit, newdata = diabetes_test)
+diabetes_y_hat_test <- as.numeric(diabetes.pred.test$class)
+
+#Compute the error,LDA
+diabetes_train_error <- sum(abs(diabetes_true_train - diabetes_y_hat_train))/length(diabetes_true_train) 
+
+diabetes_train_error
+
+
+table(diabetes_y_hat_test,diabetes_true_test)
+
+round(mean(diabetes_y_hat_test!= diabetes_test$V10),3)
+
+#QDA
+
+diabetes.qda.fit <- qda(V10 ~., data = diabetes_train)
+diabetes.qda.pred.train = predict(diabetes.qda.fit, newdata = diabetes_train)
+diabetes_qda_y_hat_train <-as.numeric(diabetes.qda.pred.train$class)
+diabetes.qda.pred.test = predict(diabetes.qda.fit, newdata = diabetes_test)
+diabetes_qda_y_hat_test <- as.numeric(diabetes.qda.pred.test$class)
+
+# Compute the error,QDA
+diabetes_qda_train_error <- sum(abs(diabetes_true_train-diabetes_qda_y_hat_train))/length(diabetes_true_train) 
+
+diabetes_qda_train_error
+
+table(diabetes_true_test,diabetes_qda_y_hat_test)
+
+round(mean(diabetes_qda_y_hat_test!= diabetes_test$V10),3)
+
+```
+ With the indivisual dataset, LDA assigns individual dataset class #3 and QDA assigns individual dataset #1.
+ 
+```{r,echo=FALSE}
+
+#c
+
+newData <- as.data.frame(t(c(0.98,122,544,186,184)))
+
+names(newData) <- names(diabetes_train[,-6])
+
+new.lda.pred <- predict(diabetes.lda.fit, newdata = newData)
+new.lda.pred.value <- as.numeric(new.lda.pred$class)
+new.lda.pred.value
+
+
+new.qda.pred <- predict(diabetes.qda.fit, newdata = newData)
+new.qda.pred.value <- as.numeric(new.qda.pred$class)
+new.qda.pred.value
+
+```
+

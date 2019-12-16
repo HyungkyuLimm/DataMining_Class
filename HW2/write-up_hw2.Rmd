@@ -1,0 +1,434 @@
+---
+title: "Write-up for Homework2"
+author: "Hyungkyu Lim"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1
+ The test errors among 5 methods are not much different. Based on the plot, PCR has the higest test error. It means that PCR is not appropriate for fitting procedure for this College dataset; It is clear then that the direction with most variance of predictors is not strongly related to the predictors. With this, lasso
+has the smallest test error value. As far as I guess, lasso method works similar 
+with the subset selection. So it will give us a better prediction rather than
+other methods.
+```{r,include = FALSE}
+library(ISLR)
+attach(College)
+set.seed(12345)
+
+split_data <- sample(nrow(College),nrow(College)*0.7)
+train_model <- College[split_data,]
+test_model <- College[-split_data,]
+
+
+ls_model <- lm(Apps~., data =train_model)
+summary(ls_model)
+
+predicted <- predict(ls_model,test_model)
+
+error <- mean((test_model$Apps-predicted)^2)
+
+library(glmnet)
+
+train_ridge <- model.matrix(Apps~., data=train_model)
+test_ridge<- model.matrix(Apps~., data=test_model)
+
+
+ridge.mod <-glmnet(train_ridge, train_model$Apps, alpha=0)
+
+cv.ridge <- cv.glmnet(train_ridge,train_model$Apps,alpha=0)
+
+ridge_bestlam <- cv.ridge$lambda.min
+
+ridge_bestlam
+
+pred_ridge <- predict(cv.ridge, s= ridge_bestlam, newx=test_ridge) 
+
+ridge_test_error <- mean((test_model$Apps-pred_ridge)^2)
+
+ridge_test_error
+
+train_lasso <- model.matrix(Apps~., data=train_model)
+
+test_lasso<- model.matrix(Apps~., data=test_model)
+
+lasso_model <- glmnet(train_lasso, train_model$Apps, alpha=1)
+
+cv.lasso <- cv.glmnet(train_lasso, train_model$Apps, alpha=1)
+
+lasso_bestlam <- cv.lasso$lambda.min
+
+lasso_bestlam
+
+pred_lasso<-predict(lasso_model,s=lasso_bestlam,newx =test_lasso)
+
+lasso_test_error <- mean((test_model$Apps-pred_lasso)^2)
+
+lasso_test_error
+
+predict(lasso_model,s=lasso_bestlam,type="coefficients")
+
+library(pls)
+set.seed(2)
+
+pcr_model = pcr(Apps~. , data = College, scale = TRUE, validation = "CV")
+summary(pcr_model)
+validationplot(pcr_model, val.type = "MSEP")
+
+train <- sample(nrow(College),nrow(College)*0.7)
+test=-train
+y_test = College$Apps[test]
+y_train = College$Apps[train]
+
+
+pcr_model <- pcr(Apps~., data=College, subset=train ,sclae=TRUE, validation="CV")
+summary(pcr_model)
+
+training_error_store <- c()
+test_error_store <- c()
+for (i in 1:17){
+	pcr_pred_test = predict(pcr_model, College[test,], ncomp = i)
+	test_error <- mean((pcr_pred_test-y_test)^2)
+	test_error_store <- c(test_error_store, test_error)
+}
+
+
+plot(test_error_store)
+
+pcr_pred=predict(pcr_model,College[test,],cnomp=5)
+
+pcr_test_error <- mean((pcr_pred-y_test)^2)
+
+pls_model = plsr(Apps ~., data = College, subset = train, scale = TRUE, validation = "CV")
+summary(pls_model)
+validationplot(pls_model, val.type = "MSEP")
+
+training_error_store_pls <- c()
+test_error_store_pls <- c()
+for (i in 1:17){
+	pls_pred_test = predict(pls_model, College[test,], ncomp = i)
+	test_error_pls <- mean((pls_pred_test-y_test)^2)
+	test_error_store_pls <- c(test_error_store_pls, test_error_pls)
+}
+
+
+plot(test_error_store_pls)
+
+pls_pred=predict(pls_model,College[test,],cnomp=8)
+
+pls_test_error <- mean((pls_pred-y_test)^2)
+
+```
+
+```{r,echo=FALSE}
+error_combined <- c(error,ridge_test_error, lasso_test_error, pcr_test_error, pls_test_error)
+
+
+plot(error_combined, main ="MSE" ,xlab = "1: linear, 2: ridge, 3: lasso, 4: pcr, 5: pls",col="red")
+
+
+```
+
+## Question 2
+ When I did OLS with respons data; categorical data which has 0 and 1. The range pf predicted value of y hat is about [-1,1]. Based on the response dataset, there are only 0 and 1 categorical value so actually the y hat values such as -0.001 and 0.04 does not make sense to estimate the RSS between y hat values and response values. To solve this problem, we have to round the y hat values off for getting 0 or 1.
+```{r, echo=FALSE} 
+library(leaps)
+library(glmnet)
+train_data <- read.table("~/desktop/EAS506/ticdata2000.txt")
+train_y <- train_data$V86
+train_x <- train_data[-86]
+
+
+test_x <- read.table("~/desktop/EAS506/ticeval2000.txt")
+test_y <- read.table("~/desktop/EAS506/tictgts2000.txt")
+
+linear_mod <- lm(V86~., data=train_data)
+
+train_y_pred <- predict(linear_mod, newdata=train_x)
+
+test_y_pred <- predict(linear_mod,newdata=test_x)
+
+hist(test_y_pred)
+```
+
+When I tried to look the y hat value which is greater than 0.5 for rounding off, there were only 3 persons. Based on this result, I can say that only 3 persons will buy the caravan policy. And the max value is  However, basically y hat values have negative values, it does not make sense at all. As a result, we cannot do OLS method for the response value which has categorical value. 
+```{r, echo=FALSE}
+max(test_y_pred)
+
+which(test_y_pred>0.5)
+```
+
+
+Here are the train and test error of OLS.
+```{r,echo=FALSE}
+train_error_lm <- mean((train_y_pred-train_y)^2)
+
+train_error_lm
+
+test_error_lm <- mean((test_y_pred-test_y)^2)
+
+test_error_lm
+```
+
+
+ When I did Forward method, I generated the Cp and BIC plot. Among these two, I chose BIC. The lowest BIC is the eight variable models; V10: Married, V18: Lower level education, V43:Purchasing power class, V44: Contribution private third party insurance, V47: Contribution car policies, V59: Contribution fire policies, V82:Number of boat policies, V85: Number of social security insurance policies.
+
+```{r, echo=FALSE}
+##Forward 
+library(leaps)
+library(glmnet)
+
+
+regfit_forward <- regsubsets(V86~., data=train_data,nvmax=86, method="forward")
+
+reg_summary =summary(regfit_forward)
+
+par(mfrow=c(1,2))
+
+plot(reg_summary$cp, xlab = "Number of Variables", ylab = "Cp", type = "l")
+
+plot(reg_summary$bic, xlab = "Number of Variables", ylab = "BIC", type = "l")
+
+
+which(reg_summary$cp == min(reg_summary$cp))
+
+
+which(reg_summary$bic == min(reg_summary$bic)) 
+```
+
+There are coefficients for best eight variabls, train and test errors for Forward selection method.
+```{r,echo=FALSE}
+coef_forward_bic<- coef(regfit_forward, 8)
+
+coef_forward_bic
+
+forward_lm <- lm(V86~ V10 + V18 + V43 + V44 + V47 + V59 + V82 + V85, data=train_data)
+
+
+train_y_pred_forward<- predict(forward_lm,newdata = train_x)
+
+forward_train_error <- mean((train_y_pred_forward=train_y)^2)
+
+forward_train_error
+
+test_y_pred_forward <- predict(forward_lm, newdata = test_x)
+
+forward_test_error <- mean((test_y_pred_forward-test_y)^2)
+
+forward_test_error
+```
+
+ When I did Backward method, I generated the Cp and BIC plot same with Forward method. Among these two, I chose BIC. The lowest BIC is the eight variable models; V10: Married, V18: Lower level education, V10: Married, V18: Lower level education ,V21: Farmer, V46: Contribution third party insuran, V47: Contribution car policies, V59: Contribution fire policies, V82: Number of boat policies, V85: Number of social security insurance policies.
+
+```{r,include=FALSE}
+##Backward
+
+regfit_backward <- regsubsets(V86~., data=train_data,nvmax=86, method="backward")
+
+reg_summary_back =summary(regfit_backward)
+```
+
+```{r, echo=FALSE}
+par(mfrow=c(1,2))
+
+plot(reg_summary_back$cp, xlab = "Number of Variables", ylab = "Cp", type = "l")
+
+plot(reg_summary_back$bic, xlab = "Number of Variables", ylab = "BIC", type = "l")
+
+
+which(reg_summary_back$cp == min(reg_summary_back$cp))
+
+which(reg_summary_back$bic == min(reg_summary_back$bic)) 
+
+```
+
+
+There are coefficients for best eight variabls, train and test errors for Backward selection method.
+```{r,echo=FALSE}
+
+coef_backward_bic<- coef(regfit_backward, 8)
+coef_backward_bic
+
+backward_lm <- lm(V86~ V10 + V18 + V21 + V46 + V47 + V59 + V82 + V85, data=train_data)
+
+train_y_pred_backward<- predict(backward_lm,newdata = train_x)
+
+backward_train_error <- mean((train_y_pred_backward-train_y)^2)
+
+backward_train_error
+
+test_y_pred_backward <- predict(backward_lm, newdata = test_x)
+
+backward_test_error <- mean((test_y_pred_backward-test_y)^2)
+
+backward_test_error
+```
+
+When I did ridge regression, the best lambda is 419.8756. And it means that when we have the lambda 419.8756, it is good tuning lambda for Ridge regression and also gives us the minimum test error. 
+Here are train and test error for Ridge regression.
+
+```{r,include=FALSE}
+#Ridge
+
+train_ridge_x <- as.matrix(train_data[,c(1:85)])
+train_ridge_y <- train_data[,c(86)]
+
+test_ridge_x <- as.matrix(test_x)
+test_ridge_y <- test_y 
+```
+
+```{r, echo=FALSE}
+cv.ridge <- cv.glmnet(train_ridge_x, train_ridge_y, alpha = 0)
+
+
+ridge_bestlam <- cv.ridge$lambda.min
+
+ridge_bestlam
+
+ridge.mod = glmnet(train_ridge_x, train_ridge_y, alpha=0)
+
+
+ridge.pred <- predict(ridge.mod, s= ridge_bestlam, type = "coefficients")
+
+ridge.pred2 <- predict(ridge.mod, s = ridge_bestlam, newx = train_ridge_x, type = "response")
+
+ridge_train_error <- mean((ridge.pred2-train_ridge_y)^2)
+
+ridge_train_error
+
+ridge.pred3 <- predict(ridge.mod, s =ridge_bestlam, newx = test_ridge_x , type = "response")
+
+
+ridge_test_error <- mean((ridge.pred3 - test_ridge_y)^2) 
+
+ridge_test_error
+
+```
+
+
+When I did Lasso regression, the best lambda is 2.962139. And it means that when we have the lambda 2.962139, it is good tuning lambda for Lasso regression and gives us the minimum test error. Compare to Ridge regression, the Lasso regression has a substantial advantage over Ridge regression in that the eresulting coefficient estimate are sparse. 
+Here are train and test error for Lasso regression.
+```{r,include=FALSE}
+#lasso
+
+train_lasso_x <- as.matrix(train_data[,c(1:85)])
+train_lasso_y <- train_data[,c(86)]
+
+test_lasso_x <- as.matrix(test_x)
+test_lasso_y <- test_y 
+```
+
+```{r,echo=FALSE}
+cv.lasso = cv.glmnet(train_lasso_x, train_lasso_y, alpha = 1)
+
+
+lasso_bestlam <- cv.lasso$lambda.min
+lasso_bestlam
+
+lasso.mod = glmnet(train_lasso_x,train_lasso_y, alpha=1)
+
+lasso.pred <- predict(lasso.mod, s= lasso_bestlam, type = "coefficients")
+
+lasso.pred2 <- predict(lasso.mod, s = lasso_bestlam, newx = train_lasso_x, type = "response")
+
+lasso_train_error <- mean((lasso.pred2-train_lasso_y)^2)
+
+lasso_train_error
+
+lasso.pred3 <- predict(lasso.mod, s =lasso_bestlam, newx = test_lasso_x , type = "response")
+
+lasso_test_error <- mean((lasso.pred3 - test_lasso_y)^2) 
+
+lasso_test_error
+
+```
+
+
+
+
+
+## Question 3
+For which model size does the test set MSE take on its minimum value?
+Comment on your results. How does the model at which the test set MSE is
+minimized compare to the true model used to generate the data? Comment on the
+coefficient values.
+
+ The model which has 13 variables for the MSE of test set is minimum.
+When I look at the true model used to generate data, some variables which have 0
+are removed from the model which has minimum MSE. As I guess, variables which has 0 doesn't affact the prediction for the best subset selection method. With this, the grpah is increasing after it passes the minimum point due to overfitting.
+```{r,include=FALSE}
+library(leaps)
+library(glmnet)
+set.seed(12345)
+
+x <- matrix(rnorm(1000*20),nrow=1000,ncol=20)
+
+b<-rnorm(20)
+
+b[c(2,4,5,7,10,15)] <- 0
+
+
+random_error <- rnorm(1000)
+
+y<- x%*%b + random_error
+
+train <- sample(seq(1000),100, replace =FALSE)
+
+test <- (-train)
+
+x_train <- x[train,]
+
+x_test <- x[test,]
+
+y_train <- y[train]
+
+y_test <- y[test]
+
+data_train <- data.frame( y = y_train, x = x_train)
+
+reg_fit <- regsubsets(y~., data= data_train, nvmax=20)
+
+train_mat <- model.matrix(y ~., data=data_train,nvmax=20 )
+
+validation_error <- rep(NA,20)
+for (i in 1:20) {
+  coefi = coef(reg_fit, id=i)
+  pred <- train_mat[ , names(coefi)] %*% coefi
+  validation_error[i] <- mean((pred-y_train)^2)
+} 
+#I applied this function from ISR lab chaper6. 
+
+data_test <- data.frame(y = y_test, x = x_test)
+
+test_mat <- model.matrix(y ~., data=data_test,nvmax=20 )
+
+validation_error_test <- rep(NA,20)
+for (i in 1:20) {
+  coefi = coef(reg_fit, id=i)
+  pred <- test_mat[ , names(coefi)] %*% coefi
+  validation_error_test[i] <- mean((pred-y_test)^2)
+} 
+#I applied this function from ISR lab chaper6. 
+
+```
+
+
+
+
+```{r,echo=FALSE}
+
+which.min(validation_error_test)
+
+coef(reg_fit,which.min(validation_error_test))
+
+par(mfrow=c(1,2))
+
+plot(validation_error, xlab = "Number of predictors", ylab = "Training MSE",col="blue",type="l")
+plot(validation_error_test, xlab = "Number of predictors", ylab = "Test MSE",col="red",type="l")
+```
+
+

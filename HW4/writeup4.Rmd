@@ -1,0 +1,379 @@
+---
+title: "Write up for homework4"
+author: "Hyungkyu Lim"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r,include=FALSE}
+knitr::opts_chunk$set(echo = TRUE ,tidy.opts=list(width.cutoff = 60), tidy = TRUE)
+library(bootstrap)
+library(ISLR)
+library(MASS)
+library(class)
+library(ElemStatLearn)
+library(leaps)
+library(boot)
+library(tree)
+library(rpart)
+library(randomForest)
+library(gbm)
+```
+
+```{r,include=FALSE}
+data("prostate")
+prostate <- prostate
+set.seed(1)
+
+train = sample(1:nrow(prostate), nrow(prostate)*0.80)
+
+Y.train = prostate$lpsa[train]
+Y.test = prostate$lpsa[-train]
+X.train = prostate[train,]
+X.test = prostate[-train,]
+```
+
+
+1) Basically, "prostate" data set is about data to examine the correlation between the level of prostate-specific antigen and a number of clinical measures in men who were about to receive a radical prostatectomy. When I used hold out method, the train error is about 0.377 and the test error is 0.846. Based on this method, AIC is about 165.486 and BIC is 191.268.
+
+
+```{r,echo=FALSE}
+#hold-out method
+
+fit <- lm(lpsa~., data = prostate[train,])
+pred.test <- predict(fit, newdata = X.test)
+pred.train <- predict(fit, newdata = X.train)
+
+summary_fit <- summary(fit)
+
+test.error <- (1/length(Y.test))*sum((pred.test - Y.test)^2)
+train.error <- (1/length(Y.train))*sum((pred.train - Y.train)^2)
+
+test.error
+train.error
+
+AIC(fit)
+BIC(fit)
+```
+For exahaustive method, Cp says 5 variables are the best fit and BIC says 3 variable are the best fit. It menas that error is mnimum when there are 5 variables in Cp and there are 3 variables in BIC. Based on the plot for train error and test error, both are the minimum when k=8 of model selection. 
+
+```{r,echo=FALSE}
+#Cp and BIC
+
+best_fit <- regsubsets(lpsa~., data = X.train, nvmax = 8, method = "exhaustive")
+
+bestfit_summary <- summary(best_fit)
+
+
+plot(bestfit_summary$cp, xlab = "Number of Variables", ylab = "Cp", type = "l")
+plot(bestfit_summary$bic, xlab = "Number of Variables", ylab = "BIC", type = "l")
+
+which.min(bestfit_summary$cp)  # 5 is best
+
+which.min(bestfit_summary$bic)# 3 is best
+
+bestfit_summary$cp
+
+bestfit_summary$bic
+
+select = summary(best_fit)$outmat
+train.error.store <- c()
+test.error.store <- c()
+for (i in 1:8){
+	temp <- which(select[i,] == "*")
+	temp <- temp + 1
+	
+	red.training <- X.train[, c(9,temp)]
+	red.testing <- X.test[,c(9,temp)]
+	
+	red.fit <- lm(lpsa~., data = red.training)
+	
+	pred.train = predict(red.fit, newdata = red.training)
+	pred.test = predict(red.fit, newdata = red.testing)
+	
+	test.error <- (1/length(Y.test))*sum((pred.test - Y.test)^2)
+	train.error <- (1/length(Y.train))*sum((pred.train - Y.train)^2)
+	
+	train.error.store <- c(train.error.store, train.error)
+	test.error.store <- c(test.error.store, test.error)
+
+}
+
+upper = max(train.error.store, test.error.store)
+lower = min(train.error.store, test.error.store)
+
+
+plot(train.error.store, type = "o", lty = 2, col = "blue", ylim = c(lower -1, upper +1) , xlab = "k", ylab = "error", main = "Model Selection")
+lines(test.error.store, type = "o", lty = 1, col = "red")
+legend("topright", c("training", "test"), lty = c(2,1), col = c("blue", "red"))
+```
+
+For cross validation when k=5, when 4th data is test dataset, cross validation error is minimum(about 0.747).
+
+```{r,echo=FALSE}
+#cv for k=5
+#from ISLR lab 6.5.3
+predict.regsubsets = function(object, newdata, id, ...) {
+  form = as.formula(object$call[[2]])
+  mat = model.matrix(form, newdata)
+  coefi = coef(object, id = id)
+  mat[, names(coefi)] %*% coefi
+}
+
+k=5
+set.seed (1)
+folds=sample (1:k,nrow(prostate),replace =TRUE)
+
+cv.errors = matrix(NA,5,8)
+for (j in 1:k) {
+  best.fit = regsubsets(lpsa~., data = prostate[folds != j,], nvmax = 8)
+  for (i in 1:8) {
+    pred = predict(best.fit, prostate[folds == j, ], id = i)
+    cv.errors[j, i] = mean((prostate$lpsa[folds == j] - pred)^2)
+  }
+}
+mean.cv = apply(cv.errors, 2, mean)
+mean.cv
+
+squared_error = sqrt(mean.cv)
+squared_error
+
+which.min(squared_error)
+```
+
+For cross validation when k=10, when 7th data is test dataset, cross validation error is minimum(about 0.747). Although k is changed, the minimum closs validation error is same for k=5 and 10.
+```{r,echo=FALSE}
+
+
+#cv for k=10
+#from ISLR lab 6.5.3
+predict.regsubsets = function(object, newdata, id, ...) {
+  form = as.formula(object$call[[2]])
+  mat = model.matrix(form, newdata)
+  coefi = coef(object, id = id)
+  mat[, names(coefi)] %*% coefi
+}
+
+k=10
+set.seed (1)
+folds=sample (1:k,nrow(prostate),replace =TRUE)
+
+cv.errors = matrix(NA,10,8)
+for (j in 1:k) {
+  best.fit = regsubsets(lpsa~ ., data = prostate[folds != j,], nvmax = 8)
+  for (i in 1:8) {
+    pred = predict(best.fit, prostate[folds == j, ], id = i)
+    cv.errors[j, i] = mean((prostate$lpsa[folds == j] - pred)^2)
+  }
+}
+mean.cv = apply(cv.errors, 2, mean)
+mean.cv
+
+squared_error = sqrt(mean.cv)
+squared_error
+
+which.min(squared_error)
+
+```
+
+For bootstrap method, when we are sampling data from the priginal data, 3th sampling data's error is minimum(about0.513) based on the bootstrap plot.
+```{r,echo=FALSE}
+#bootstrap
+
+X <- prostate[,]
+Y <- prostate[,9]
+
+beta.fit <- function(X,Y){
+  lsfit(X,Y)	
+}
+
+beta.predict <- function(fit, X){
+	cbind(1,X)%*%fit$coef
+}
+
+sq.error <- function(Y,Yhat){
+	(Y-Yhat)^2
+}
+
+
+error_store <- c()
+for (i in 1:8){
+	
+	temp <- which(select[i,] == "*")
+  res <- bootpred(X[,temp], Y, nboot = 50, theta.fit = beta.fit, theta.predict =      beta.predict, err.meas = sq.error) 
+	error_store <- c(error_store, res[[3]])
+	
+}
+
+
+error_store
+
+plot(error_store, type = "o", lty = 3, col = "blue")
+legend("topright", "bootstrap .632")
+
+```
+
+2) Based on the classification tree, it classifies the data of V1 into 46 class "1", 55 class "2" and 38 class "3". It seems that V14 is the most important factor in determining V1.With this, V8, V13 and V12 are important factors in determining V1. For example, class"1" is greater than 755 of Proline(V14). It is also greater than 2.65 of Nonflavanoid phenols(V8).
+
+
+```{r,echo=FALSE}
+
+set.seed(1)
+
+wine <- read.csv("wine_data.txt", header=FALSE)
+
+train <- sample(1:nrow(wine), nrow(wine)*0.80)
+
+train_wine <- wine[train,]
+
+test_wine <- wine[-train,]
+
+model.control <- rpart.control(minsplit = 5, xval = 10, cp = 0)
+
+fit.dig <- rpart(V1~., data = train_wine, method = "class", control = model.control)
+
+
+par(mfrow = c(1,2),xpd = NA)
+plot(fit.dig, uniform=TRUE)
+text(fit.dig,use.n=TRUE,pretty=0, cex=.8)
+```
+
+Train error is about 0.655. Test error is 0.139. and the error of pruned is 0.139. Wine data has only 13 variables so it genrates a small tree. Usually a smaller tree with fewer splits might lead to lower variance and better interpretation at the cost of little bias. That's why test error and the error of pruned are same. With this, training samples fall into each node is 142 and 36 for testing samples.
+```{r,echo=FALSE}
+pred_train_wine <- predict(fit.dig,train_wine,type="class")
+
+table(pred_train_wine,train_wine$V1)
+
+wine_error_train <- mean(pred_train_wine != test_wine$V1)
+
+wine_error_train
+
+pred_test_wine <- predict(fit.dig,test_wine,type="class")
+
+table(pred_test_wine,test_wine$V1)
+
+wine_error_test <- mean(pred_test_wine != test_wine$V1)
+
+wine_error_test
+
+fit.dig$cptable
+
+min_cp = which.min(fit.dig$cptable[,4])
+pruned_fit_dig <- prune(fit.dig, cp = fit.dig$cptable[min_cp,1])
+
+pred_train_wine_pruned <- predict(pruned_fit_dig,test_wine,type="class")
+
+table(pred_train_wine_pruned,test_wine$V1)
+
+wine_error_pruned <- mean(pred_train_wine_pruned != test_wine$V1)
+
+wine_error_pruned
+
+nodes_wine <- fit.dig
+
+nodes_wine$frame$yval = as.numeric(rownames(nodes_wine$frame))
+trainnodes <- predict(nodes_wine, train_wine, type="vector")
+
+
+nodes_wine$frame$yval = as.numeric(rownames(nodes_wine$frame))
+testnodes <- predict(nodes_wine, test_wine, type="vector")
+
+length(trainnodes)
+
+length(testnodes)
+
+```
+
+I chose the "Smarket"dataset. "Smarket"data is about daily percentage returns for the S&P 500 stock index between 2001 and 2005. First, I removed the column "Today" and "Year" because, I want to predict "Direction" using Lag1~5 and Volume. Then, I generated logistic regression model using glm function. The test error of logistic regression is 0.512. In order to make a prediction as to whether the market will go up or down on a particular day, I converted these predicted probabilites into class labels 0 for "down" and 1 for"up". And then I generated the table(confusion matrix) that indicate correct prediction, while the off-diagonals represent incorrect predictions. In my case, I think that do committee machine is bettr then non-ensemble method. Ensemble method gives a better prediction in oter words, it gives me a more exact prediction than the non-ensemble method. With this, it give me a more stable model than non-ensemble method. It means that the model of ensemble method is less noisy than the model of non-ensemble method. The aggregate opinion of a multiple models is less noisy than other models. So it allows me to predit the model more precisely. 
+
+```{r,echo=FALSE}
+set.seed(123)
+
+data("Smarket")
+smarket <- Smarket
+
+smarket <- subset(smarket, select = -c(Today,Year))
+
+train <- sample(1:nrow(smarket), nrow(smarket)*0.80)
+
+
+
+smarket$Direction = ifelse(smarket$Direction == "Up", 1, 0) #down :0, up :1
+
+train_smarket <- smarket[train,]
+test_smarket <- smarket[-train,]
+
+logit.fit <- glm(Direction~. , data=train_smarket, family= "binomial")
+
+logit.probs <- predict(logit.fit, newdata = test_smarket, type ="response")
+
+logit.pred <- ifelse(logit.probs > 0.5, 1, 0) # 0 :down, 1: up
+
+table(test_smarket$Direction, logit.pred)
+
+logit_error <- mean(test_smarket$Direction != logit.pred)
+
+logit_error
+```
+
+For begging, the test error is 0.468.
+```{r,echo=FALSE}
+#Bagging
+bagging.fit = randomForest(Direction ~ ., data = train_smarket, mtry = 6)
+
+bagging.probs = predict(bagging.fit, newdata = test_smarket)
+
+bagging.pred = ifelse(bagging.probs > 0.5, 1, 0)
+
+table(test_smarket$Direction, bagging.pred)
+
+bagging_error <- mean(test_smarket$Direction != bagging.pred)
+
+bagging_error
+```
+
+For boosting, the test error is 0.532.
+```{r,echo=FALSE}
+#boosting 
+
+boosting.fit = gbm(Direction ~ ., data = train_smarket, distribution = "bernoulli", n.trees = 5000)
+
+boosting.probs= predict(boosting.fit, newdata = test_smarket, n.trees = 5000)
+
+boosting.pred = ifelse(boosting.probs > 0.5, 1, 0)
+
+table(test_smarket$Direction, boosting.pred)
+
+boosting_error <- mean(test_smarket$Direction != boosting.pred)
+
+boosting_error
+
+```
+
+
+For random forest, the test error is 0.532
+```{r,echo=FALSE}
+#random forest
+rforest.fit = randomForest(Direction ~ ., data = train_smarket, mtry = 2)
+
+rforest.probs = predict(rforest.fit, newdata = test_smarket)
+
+rforest.pred = ifelse(rforest.probs > 0.5, 1, 0)
+
+table(test_smarket$Direction, rforest.pred)
+
+rforest_error <- mean(test_smarket$Direction != rforest.pred)
+
+rforest_error
+```
+
+Based on the plot, test error fo bagging is the minimum among 4 errors. 
+
+
+```{r,echo=FALSE}
+
+error_combined <- c(logit_error,bagging_error,boosting_error,rforest_error)
+
+plot(error_combined, main ="test error" ,xlab = "1: logit, 2: bagging, 3: boosting, 4:rforest", col=c("blue","black","green","red"))
+
+```
